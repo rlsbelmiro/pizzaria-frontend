@@ -1,6 +1,7 @@
 import Router from "next/router";
-import { destroyCookie } from "nookies";
-import { createContext, ReactNode, useState } from "react";
+import { destroyCookie, parseCookies, setCookie } from "nookies";
+import { createContext, ReactNode, useEffect, useState } from "react";
+import { toast } from "react-toastify";
 import { api } from "../services/apiClient";
 
 type AuthContextData = {
@@ -8,6 +9,7 @@ type AuthContextData = {
     isAuthenticated: boolean;
     signIn: (credencials: SignInProps) => Promise<void>;
     signOut: () => void;
+    signUp: (credecials: SignUpProps) => Promise<UserProps>;
 }
 
 type UserProps = {
@@ -17,6 +19,12 @@ type UserProps = {
 }
 
 type SignInProps = {
+    email: string;
+    password: string;
+}
+
+type SignUpProps = {
+    name: string;
     email: string;
     password: string;
 }
@@ -40,6 +48,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const [user, setUser] = useState<UserProps>();
     const isAuthenticated = !!user;
 
+    useEffect(() => {
+        const { '@nextauth.token' : token } = parseCookies(undefined);
+        if(token) {
+            api.get('/me').then(res => {
+                if(res.data) {
+                    const { id, name, email } = res.data;
+                    setUser({
+                        id,
+                        name,
+                        email
+                    });
+                } else {
+                    signOut();
+                }
+            });
+        } else {
+            signOut();
+        }
+    },[]);
+
     async function signIn({email, password}: SignInProps) {
         try {
             const response = await api.post('/session', {
@@ -52,15 +80,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 name,
                 email
             });
-
+            setCookie(undefined, '@nextauth.token', token, {
+                maxAge: 60 * 60 * 24 * 30,
+                path: '/'
+            });
             api.defaults.headers['Authorization'] = `Bearer ${token}`;
             Router.push('/dashboard');
         } catch (err) {
+            const msg = err?.response?.data?.error ? err.response.data.error : 'Erro ao acessar!'
+            toast.error(msg);
+        }
+    }
 
+    async function signUp({name, email, password}: SignUpProps) {
+        try {
+            const response = await api.post('/users', {
+                name,
+                email,
+                password
+            });
+
+            Router.push('/');
+            toast.success('Conta criada com sucesso!');
+            return response.data;
+
+        } catch (err) {
+            const msg = err?.response?.data?.error ? err.response.data.error : 'Erro ao acessar!'
+            toast.error(msg);
         }
     }
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, signIn, signOut }}>
+        <AuthContext.Provider value={{ user, isAuthenticated, signIn, signOut, signUp }}>
             {children}
         </AuthContext.Provider>
     )
